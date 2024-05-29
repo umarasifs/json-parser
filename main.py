@@ -21,9 +21,11 @@ def bool_parse(data):
         return (True, data[4:].strip())
 
 
-def object_parse(data):
+def object_parse(data, depth=1):
     if data[0] != '{':
         return None
+    if depth > 19:
+        raise InvalidJSON("Exceeds Maximum Depth",50)
     data = data[1:].strip()
     parse_dict = {}
 
@@ -47,7 +49,7 @@ def object_parse(data):
         if len(data) == 0:
             raise InvalidJSON("Incomplete Object",10)
 
-        values = all_parse(data)
+        values = all_parse(data, depth+1)
         if not values:
             raise InvalidJSON("Invalid Object Value",13)
         value,data = values
@@ -68,22 +70,47 @@ def object_parse(data):
                 raise InvalidJSON("Extra Comma",15)
     return (parse_dict,data[1:].strip())
 
+def is_hexadecimal(char):
+    try:
+        int(char, 16)
+        return True
+    except ValueError:
+        return False
 
 def find_ending_quote(data):
     escaped = False
-    for i in range(len(data)):
+    i = 0
+    while i < len(data):
         if escaped:
-            escaped = False
-            continue
+            if data[i] in ['"', "\\", "/", "b", "f", "n", "r", "t"]:
+                escaped = False
+                i+=1
+                continue
+            elif data[i] == 'u':
+                if i + 4 < len(data) and is_hexadecimal(data[i+1]) and is_hexadecimal(data[i+2]) and is_hexadecimal(data[i+3]) and is_hexadecimal(data[i+4]):
+                    i += 5
+                    escaped = False
+                    continue
+                else:
+                    raise InvalidJSON("Invalid Escape Value",31)
+            else:
+                raise InvalidJSON("Invalid Escape Value",31)
         if data[i] == "\\":
             escaped = True
         elif data[i] == '"':
             return i
+        elif data[i] == '\n':
+            raise InvalidJSON("Invalid Escape Value",31)
+        elif data[i] == '\t':
+            raise InvalidJSON("Invalid Escape Value",31)
+        i+=1
     return -1
 
-def array_parse(data):
+def array_parse(data, depth=1):
     if data[0] != '[':
         return None
+    if depth > 19:
+        raise InvalidJSON("Exceeds Maximum Depth",50)
     data = data[1:].strip()
     parse_array = []
     if len(data) == 0:
@@ -91,7 +118,7 @@ def array_parse(data):
     while data[0] != ']':
         if len(data) == 0:
             raise InvalidJSON("Incomplete Array",20)
-        values = all_parse(data)
+        values = all_parse(data, depth+1)
         if not values:
             raise InvalidJSON("Invalid Array Value",21)
         value,data = values
@@ -120,7 +147,8 @@ def string_parse(data):
     end_quote_idx = find_ending_quote(data)
     if end_quote_idx == -1:
         raise InvalidJSON("Missing Closing \"",30)
-    return (bytes(data[:end_quote_idx], 'utf-8').decode('unicode_escape'), data[end_quote_idx+1:].strip())
+    value = bytes(data[:end_quote_idx], 'utf-8').decode('unicode_escape')
+    return (value, data[end_quote_idx+1:].strip())
 
 def num_parse(data):
     number_regex = r'^[-+]?\b\d+(\.\d+)?([eE][-+]?\d+)?\b'
@@ -128,6 +156,13 @@ def num_parse(data):
     if not match:
         return None
     raw_value = match.group(0)
+    first_idx = 0
+    if raw_value[0] == '+' or raw_value[0] == '-':
+        first_idx = 1
+    if raw_value[first_idx] == '0':
+        if len(raw_value) > first_idx+1:
+            if raw_value[first_idx+1].isnumeric():
+                raise InvalidJSON("Leading zero",40)
     value = float(raw_value)
     if value %1 == 0:
         value = int(value)
@@ -141,17 +176,17 @@ def colon_parse(data):
     if data[0] == ":":
         return (":", data[1:].strip())
 
-def all_parse(data):
+def all_parse(data, depth=1):
     values = null_parse(data)
     if values:
         return values
     values = bool_parse(data)
     if values:
         return values
-    values = object_parse(data)
+    values = object_parse(data, depth)
     if values:
         return values
-    values = array_parse(data)
+    values = array_parse(data, depth)
     if values:
         return values
     values = string_parse(data)
