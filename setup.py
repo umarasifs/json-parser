@@ -10,7 +10,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "ccwc = main:wc",
+            "parse = main:parse",
         ],
     },
 )
